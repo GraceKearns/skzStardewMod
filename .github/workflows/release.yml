@@ -1,0 +1,69 @@
+on:
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'Release name'
+        required: true
+        default: 'Custom Release'
+      increment:
+        description: 'Version increment (major, minor, patch)'
+        required: true
+        default: 'patch'
+
+jobs:
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          git fetch --tags
+          latest_tag=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n 1)
+          echo "Latest tag: $latest_tag"
+          if [ -z "$latest_tag" ]; then
+            latest_tag="v0.0.0"
+          fi
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+
+      - name: Bump version
+        id: bump_version
+        run: |
+          latest_tag=${{ steps.get_tag.outputs.latest_tag }}
+          version=${latest_tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+          case "${{ github.event.inputs.increment }}" in
+            major)
+              major=$((major+1)); minor=0; patch=0;;
+            minor)
+              minor=$((minor+1)); patch=0;;
+            patch|*)
+              patch=$((patch+1));;
+          esac
+          new_tag="v$major.$minor.$patch"
+          echo "New tag: $new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag ${{ steps.bump_version.outputs.new_tag }}
+          git push origin ${{ steps.bump_version.outputs.new_tag }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump_version.outputs.new_tag }}
+          name: ${{ github.event.inputs.release_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
